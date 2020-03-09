@@ -140,6 +140,53 @@ func TestReconcileImplUpdated(t *testing.T) {
 	}
 }
 
+func TestReconcileImplNodeSelectorInvalid(t *testing.T) {
+	route := newStaticRouteWithValues(true, false)
+	route.Spec.Selector = "="
+	params, mockClient := getReconcileContextForAddFlow(route, true)
+	mockClient.listErr = errors.New("Couldn't fetch nodes")
+
+	res, err := reconcileImpl(*params)
+
+	if res != wrongSelectorErr {
+		t.Error("Result must be wrongSelectorErr")
+	}
+	if err != nil {
+		t.Errorf("Error must be nil: %s", err.Error())
+	}
+}
+
+func TestReconcileImplNodeSelectorFatalError(t *testing.T) {
+	route := newStaticRouteWithValues(true, false)
+	route.Spec.Selector = "key=value"
+	params, mockClient := getReconcileContextForAddFlow(route, true)
+	mockClient.listErr = errors.New("Couldn't fetch nodes")
+
+	res, err := reconcileImpl(*params)
+
+	if res != nodeGetError {
+		t.Error("Result must be nodeGetError")
+	}
+	if err == nil {
+		t.Error("Error must be not nil")
+	}
+}
+
+func TestReconcileImplNodeSelectorNotFound(t *testing.T) {
+	route := newStaticRouteWithValues(true, false)
+	route.Spec.Selector = "key=value"
+	params, _ := getReconcileContextForAddFlow(route, true)
+
+	res, err := reconcileImpl(*params)
+
+	if res != nodeNotFound {
+		t.Error("Result must be nodeNotFound")
+	}
+	if err != nil {
+		t.Errorf("Error must be nil: %s", err.Error())
+	}
+}
+
 func TestReconcileImplDeleted(t *testing.T) {
 	params, mockClient := getReconcileContextForAddFlow(nil, true)
 	mockClient.postfixGet = func(obj runtime.Object) {

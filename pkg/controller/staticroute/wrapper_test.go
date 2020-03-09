@@ -129,12 +129,14 @@ func TestIsChanged(t *testing.T) {
 	var testData = []struct {
 		hostname string
 		gateway  string
+		selector string
 		route    *iksv1.StaticRoute
 		result   bool
 	}{
 		{
 			"hostname",
 			"gateway",
+			"",
 			&iksv1.StaticRoute{
 				Spec: iksv1.StaticRouteSpec{
 					Subnet: "subnet",
@@ -145,6 +147,7 @@ func TestIsChanged(t *testing.T) {
 		{
 			"hostname",
 			"gateway",
+			"",
 			&iksv1.StaticRoute{
 				Spec: iksv1.StaticRouteSpec{
 					Subnet: "subnet",
@@ -166,6 +169,7 @@ func TestIsChanged(t *testing.T) {
 		{
 			"hostname",
 			"gateway2",
+			"",
 			&iksv1.StaticRoute{
 				Spec: iksv1.StaticRouteSpec{
 					Subnet: "subnet",
@@ -187,6 +191,7 @@ func TestIsChanged(t *testing.T) {
 		{
 			"hostname",
 			"gateway",
+			"",
 			&iksv1.StaticRoute{
 				Spec: iksv1.StaticRouteSpec{
 					Subnet: "subnet2",
@@ -208,6 +213,7 @@ func TestIsChanged(t *testing.T) {
 		{
 			"hostname",
 			"gateway2",
+			"",
 			&iksv1.StaticRoute{
 				Spec: iksv1.StaticRouteSpec{
 					Subnet: "subnet2",
@@ -229,6 +235,7 @@ func TestIsChanged(t *testing.T) {
 		{
 			"hostname",
 			"gateway2",
+			"",
 			&iksv1.StaticRoute{
 				Spec: iksv1.StaticRouteSpec{
 					Subnet: "subnet2",
@@ -257,6 +264,7 @@ func TestIsChanged(t *testing.T) {
 		{
 			"hostname",
 			"gateway",
+			"",
 			&iksv1.StaticRoute{
 				Spec: iksv1.StaticRouteSpec{
 					Subnet: "subnet",
@@ -282,12 +290,34 @@ func TestIsChanged(t *testing.T) {
 			},
 			false,
 		},
+		{
+			"hostname",
+			"gateway",
+			"selector",
+			&iksv1.StaticRoute{
+				Spec: iksv1.StaticRouteSpec{
+					Subnet: "subnet",
+				},
+				Status: iksv1.StaticRouteStatus{
+					NodeStatus: []iksv1.StaticRouteNodeStatus{
+						iksv1.StaticRouteNodeStatus{
+							Hostname: "hostname",
+							State: iksv1.StaticRouteSpec{
+								Subnet:  "subnet",
+								Gateway: "gateway",
+							},
+						},
+					},
+				},
+			},
+			true,
+		},
 	}
 
 	for i, td := range testData {
 		rw := routeWrapper{instance: td.route}
 
-		res := rw.isChanged(td.hostname, td.gateway)
+		res := rw.isChanged(td.hostname, td.gateway, td.selector)
 
 		if res != td.result {
 			t.Errorf("Result must be %t, it is %t ad %d", td.result, res, i)

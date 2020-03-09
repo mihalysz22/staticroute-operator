@@ -65,11 +65,11 @@ func (rw *routeWrapper) isProtected(protecteds []*net.IPNet) bool {
 	return false
 }
 
-func (rw *routeWrapper) isChanged(hostname, gateway string) bool {
+func (rw *routeWrapper) isChanged(hostname, gateway, selector string) bool {
 	for _, s := range rw.instance.Status.NodeStatus {
 		if s.Hostname != hostname {
 			continue
-		} else if s.State.Subnet != rw.instance.Spec.Subnet || s.State.Gateway != gateway {
+		} else if s.State.Subnet != rw.instance.Spec.Subnet || s.State.Gateway != gateway || s.State.Selector != selector {
 			return true
 		}
 	}

@@ -25,7 +25,9 @@ import (
 	iksv1 "github.com/IBM/staticroute-operator/pkg/apis/iks/v1"
 	"github.com/IBM/staticroute-operator/pkg/routemanager"
 	"github.com/IBM/staticroute-operator/pkg/types"
+	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
@@ -37,6 +39,9 @@ import (
 )
 
 var (
+	//ZoneLabel Node hostname label to determine hostname
+	HostNameLabel = "kubernetes.io/hostname"
+
 	//ZoneLabel Kubernetes node label to determine node zone
 	ZoneLabel = "failure-domain.beta.kubernetes.io/zone"
 )
@@ -103,6 +108,7 @@ func (r *ReconcileStaticRoute) Reconcile(request reconcile.Request) (reconcile.R
 type reconcileImplClient interface {
 	Get(context.Context, client.ObjectKey, runtime.Object) error
 	Update(context.Context, runtime.Object, ...client.UpdateOption) error
+	List(ctx context.Context, list runtime.Object, opts ...client.ListOption) error
 	Status() client.StatusWriter
 }
 
@@ -115,6 +121,7 @@ type reconcileImplParams struct {
 var (
 	crNotFound        = &reconcile.Result{}
 	notSameZone       = &reconcile.Result{}
+	nodeNotFound      = &reconcile.Result{}
 	overlapsProtected = &reconcile.Result{}
 	alreadyDeleted    = &reconcile.Result{}
 	deletionFinished  = &reconcile.Result{}
@@ -122,6 +129,8 @@ var (
 	finished          = &reconcile.Result{}
 
 	crGetError           = &reconcile.Result{}
+	wrongSelectorErr     = &reconcile.Result{}
+	nodeGetError         = &reconcile.Result{}
 	deRegisterError      = &reconcile.Result{}
 	delStatusUpdateError = &reconcile.Result{}
 	emptyFinalizerError  = &reconcile.Result{}
@@ -171,7 +180,7 @@ func reconcileImpl(params reconcileImplParams) (*reconcile.Result, error) {
 		return res, err
 	}
 
-	isChanged := rw.isChanged(params.options.Hostname, gateway.String())
+	isChanged := rw.isChanged(params.options.Hostname, gateway.String(), rw.instance.Spec.Selector)
 	reqLogger.Info("The resource is", "changed", isChanged)
 	if instance.GetDeletionTimestamp() != nil || isChanged {
 		if !rw.removeFromStatus(params.options.Hostname) {
@@ -183,6 +192,13 @@ func reconcileImpl(params reconcileImplParams) (*reconcile.Result, error) {
 			return updateFinished, err
 		}
 		return res, err
+	}
+
+	if len(rw.instance.Spec.Selector) > 0 {
+		reqLogger.Info("Node selector found", "Selector", rw.instance.Spec.Selector)
+		if res, err := validateNodeBySelector(params, &rw, reqLogger); res != nil {
+			return res, err
+		}
 	}
 
 	return addOperation(params, &rw, gateway, params.options.Table, reqLogger)
@@ -204,6 +220,25 @@ func selectGateway(params reconcileImplParams, rw routeWrapper, logger types.Log
 		gateway = defaultGateway
 	}
 	return nil, gateway, nil
+}
+
+func validateNodeBySelector(params reconcileImplParams, rw *routeWrapper, logger types.Logger) (*reconcile.Result, error) {
+	nodes := &corev1.NodeList{}
+	set, err := labels.ConvertSelectorToLabelsMap(rw.instance.Spec.Selector)
+	if err != nil {
+		log.Info("There is something wrong with the node selector", "Value", rw.instance.Spec.Selector)
+		return wrongSelectorErr, nil
+	}
+	set[HostNameLabel] = params.options.Hostname
+	listOptions := &client.ListOptions{LabelSelector: labels.SelectorFromSet(set)}
+	if err := params.client.List(context.Background(), nodes, listOptions); err != nil {
+		log.Error(err, "Failed to fetch nodes")
+		return nodeGetError, err
+	} else if len(nodes.Items) == 0 {
+		log.Info("Node not found. Probably deleted meanwhile")
+		return nodeNotFound, nil
+	}
+	return nil, nil
 }
 
 func deleteOperation(params reconcileImplParams, rw *routeWrapper, logger types.Logger) (*reconcile.Result, error) {

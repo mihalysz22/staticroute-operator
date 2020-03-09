@@ -36,6 +36,10 @@ spec:
                 discovered if not set)
               pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}$
               type: string
+            selector:
+              description: Selector defines the target nodes by label (optional, default
+                is apply to all)
+              type: string
             subnet:
               description: 'Subnet defines the required IP subnet in the form of:
                 "x.x.x.x/x"'
@@ -67,6 +71,10 @@ spec:
                         description: Gateway the gateway the subnet is routed through
                           (optional, discovered if not set)
                         pattern: ^([0-9]{1,3}\.){3}[0-9]{1,3}$
+                        type: string
+                      selector:
+                        description: Selector defines the target nodes by label (optional,
+                          default is apply to all)
                         type: string
                       subnet:
                         description: 'Subnet defines the required IP subnet in the
