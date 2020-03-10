@@ -27,8 +27,10 @@ import (
 	"github.com/IBM/staticroute-operator/pkg/types"
 	corev1 "k8s.io/api/core/v1"
 	kerrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
 	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/selection"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/handler"
@@ -180,7 +182,7 @@ func reconcileImpl(params reconcileImplParams) (*reconcile.Result, error) {
 		return res, err
 	}
 
-	isChanged := rw.isChanged(params.options.Hostname, gateway.String(), rw.instance.Spec.Selector)
+	isChanged := rw.isChanged(params.options.Hostname, gateway.String(), rw.instance.Spec.Selectors)
 	reqLogger.Info("The resource is", "changed", isChanged)
 	if instance.GetDeletionTimestamp() != nil || isChanged {
 		if !rw.removeFromStatus(params.options.Hostname) {
@@ -194,8 +196,8 @@ func reconcileImpl(params reconcileImplParams) (*reconcile.Result, error) {
 		return res, err
 	}
 
-	if len(rw.instance.Spec.Selector) > 0 {
-		reqLogger.Info("Node selector found", "Selector", rw.instance.Spec.Selector)
+	if len(rw.instance.Spec.Selectors) > 0 {
+		reqLogger.Info("Node selector found", "Selector", rw.instance.Spec.Selectors)
 		if res, err := validateNodeBySelector(params, &rw, reqLogger); res != nil {
 			return res, err
 		}
@@ -224,13 +226,27 @@ func selectGateway(params reconcileImplParams, rw routeWrapper, logger types.Log
 
 func validateNodeBySelector(params reconcileImplParams, rw *routeWrapper, logger types.Logger) (*reconcile.Result, error) {
 	nodes := &corev1.NodeList{}
-	set, err := labels.ConvertSelectorToLabelsMap(rw.instance.Spec.Selector)
-	if err != nil {
-		log.Info("There is something wrong with the node selector", "Value", rw.instance.Spec.Selector)
-		return wrongSelectorErr, nil
+	selector := labels.NewSelector()
+	allSelector := rw.instance.Spec.Selectors
+	allSelector = append(allSelector, metav1.LabelSelectorRequirement{
+		Key:      HostNameLabel,
+		Operator: metav1.LabelSelectorOpIn,
+		Values:   []string{params.options.Hostname},
+	})
+	for _, s := range allSelector {
+		operator, err := convertToOperator(s.Operator)
+		if err != nil {
+			log.Info("There is something wrong with the node selector operator", "Value", s)
+			return wrongSelectorErr, nil
+		}
+		req, err := labels.NewRequirement(s.Key, operator, s.Values)
+		if err != nil {
+			log.Info("There is something wrong with the node selector", "Value", s)
+			return wrongSelectorErr, nil
+		}
+		selector = selector.Add(*req)
 	}
-	set[HostNameLabel] = params.options.Hostname
-	listOptions := &client.ListOptions{LabelSelector: labels.SelectorFromSet(set)}
+	listOptions := &client.ListOptions{LabelSelector: selector}
 	if err := params.client.List(context.Background(), nodes, listOptions); err != nil {
 		log.Error(err, "Failed to fetch nodes")
 		return nodeGetError, err
@@ -309,4 +325,19 @@ func addOperation(params reconcileImplParams, rw *routeWrapper, gateway net.IP, 
 
 	logger.Info("Reconciliation done, no add, no delete.")
 	return finished, nil
+}
+
+func convertToOperator(operator metav1.LabelSelectorOperator) (selection.Operator, error) {
+	switch operator {
+	case metav1.LabelSelectorOpIn:
+		return selection.In, nil
+	case metav1.LabelSelectorOpNotIn:
+		return selection.NotIn, nil
+	case metav1.LabelSelectorOpExists:
+		return selection.Exists, nil
+	case metav1.LabelSelectorOpDoesNotExist:
+		return selection.DoesNotExist, nil
+	default:
+		return selection.Equals, errors.New("Unable to convert operator")
+	}
 }
